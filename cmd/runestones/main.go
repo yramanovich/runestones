@@ -2,52 +2,33 @@ package main
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/yramanovich/runestones/manager"
+	"github.com/yramanovich/runestones/contents"
+	"github.com/yramanovich/runestones/handlers"
+	"github.com/yramanovich/runestones/log"
+	"github.com/yramanovich/runestones/repository"
+	"github.com/yramanovich/runestones/runestones"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	logger.Info("Hello World!")
 
-	router := mux.NewRouter()
+	ctx := context.Background()
 
-	m := manager.NewManager()
+	fs := contents.NewFilesystem("")
+	repo, err := repository.NewPostgres(ctx)
+	if err != nil {
+		panic(err)
+	}
 
-	router.Methods("GET").Path("/v1/runestones/{id}").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		if id, ok := vars["id"]; ok {
-			content, err := m.GetRunestone(r.Context(), id)
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-			w.Write(content)
-			return
-		}
-		http.Error(w, "id is not found", 500)
-	})
-	router.Methods("POST").Path("/v1/runestones").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		defer r.Body.Close()
-		id, err := m.CreateRunestone(r.Context(), data)
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		w.Write([]byte(id))
-	})
+	m := runestones.NewManager(fs, repo)
+
+	router := handlers.SetupHandlers(m)
 
 	server := &http.Server{
 		Addr:              ":8000",
@@ -56,9 +37,7 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		MaxHeaderBytes:    http.DefaultMaxHeaderBytes,
-		BaseContext: func(net.Listener) context.Context {
-			return context.WithValue(context.Background(), "logger", logger)
-		},
+		BaseContext:       func(net.Listener) context.Context { return log.IntoContext(ctx, logger) },
 	}
 
 	server.ListenAndServe()
