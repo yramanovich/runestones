@@ -93,7 +93,7 @@ linters:
     - staticcheck
     - unused
     - lll
-    - wrapcheck
+#    - wrapcheck
 
 issues:
   exclude-rules:

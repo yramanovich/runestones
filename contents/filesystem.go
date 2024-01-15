@@ -7,8 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/yramanovich/runestones/log"
 )
 
+// NewFilesystem returns new Filesystem instance. Empty dir defaulted to os.TempDir().
 func NewFilesystem(dir string) *Filesystem {
 	if dir == "" {
 		dir = os.TempDir()
@@ -16,21 +19,24 @@ func NewFilesystem(dir string) *Filesystem {
 	return &Filesystem{dir: dir}
 }
 
+// Filesystem saves/reads content to/from filesystem.
 type Filesystem struct {
 	dir string
 }
 
-func (fs *Filesystem) SaveContent(_ context.Context, key string, content []byte) error {
+// SaveContent writes content to the file.
+func (fs *Filesystem) SaveContent(ctx context.Context, key string, content []byte) error {
 	f, err := os.Create(fs.generatePath(key))
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer log.Close(ctx, f, "close content file")
 
 	_, err = io.Copy(f, bytes.NewBuffer(content))
 	return err
 }
 
+// FindContent reads the file and returns the contents.
 func (fs *Filesystem) FindContent(_ context.Context, key string) ([]byte, error) {
 	return os.ReadFile(fs.generatePath(key))
 }

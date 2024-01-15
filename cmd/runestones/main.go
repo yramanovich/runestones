@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/yramanovich/runestones/contents"
@@ -18,17 +21,16 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	fs := contents.NewFilesystem("")
 	repo, err := repository.NewPostgres(ctx)
 	if err != nil {
-		panic(err)
+		logger.Error("init postgres repository", "err", err)
+		return
 	}
 
-	m := runestones.NewManager(fs, repo)
-
-	router := handlers.SetupHandlers(m)
+	router := handlers.SetupHandlers(runestones.NewService(contents.NewFilesystem(""), repo))
 
 	server := &http.Server{
 		Addr:              ":8000",
@@ -36,9 +38,21 @@ func main() {
 		ReadTimeout:       5 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
-		MaxHeaderBytes:    http.DefaultMaxHeaderBytes,
 		BaseContext:       func(net.Listener) context.Context { return log.IntoContext(ctx, logger) },
 	}
 
-	server.ListenAndServe()
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("listen and serve", "err", err)
+		}
+	}()
+	<-ctx.Done()
+
+	logger.Info("Received interruption signal")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error("server shutdown", "err", err)
+	}
 }
