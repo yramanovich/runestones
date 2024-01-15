@@ -36,3 +36,28 @@ func CorrelationId(ctx context.Context) string {
 	}
 	return id
 }
+
+type contextHandler struct {
+	wrap slog.Handler
+}
+
+func (h contextHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.wrap.Enabled(ctx, level)
+}
+
+func (h contextHandler) Handle(ctx context.Context, record slog.Record) error {
+	id := CorrelationId(ctx)
+	const correlationIdKey = "correlation_id"
+	if id != "" {
+		record.Add(slog.String(correlationIdKey, id))
+	}
+	return h.wrap.Handle(ctx, record)
+}
+
+func (h contextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return h.wrap.WithAttrs(attrs)
+}
+
+func (h contextHandler) WithGroup(name string) slog.Handler {
+	return h.wrap.WithGroup(name)
+}
